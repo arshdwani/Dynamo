@@ -54,6 +54,9 @@ MainActor.assumeIsolated {
                                     reason: decide(model.config, b, PolicyState()).reason)
     }
 
+    // SNAPSHOT_UPDATE=1 shows the update banner.
+    model.availableUpdate = ProcessInfo.processInfo.environment["SNAPSHOT_UPDATE"] == nil ? nil
+        : Release(version: "1.3", url: URL(string: "https://github.com/\(Updater.repo)/releases")!)
     NSApp.activate(ignoringOtherApps: true)
     for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
         for (tab, tabName) in [(0, "control"), (3, "energy"), (1, "health"), (2, "history")] {

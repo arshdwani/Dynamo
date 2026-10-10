@@ -13,6 +13,7 @@ struct PanelView: View {
                        + "menu bar to make room. Opening Dynamo again always shows this window.",
                        color: .orange)
             }
+            if let update = model.availableUpdate { UpdateBanner(release: update) }
             Header()
             TabBar()
             Group {
@@ -28,6 +29,29 @@ struct PanelView: View {
         }
         .padding(14)
         .frame(width: 360)
+    }
+}
+
+struct UpdateBanner: View {
+    var release: Release
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill").font(.title2).foregroundStyle(.cyan)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Dynamo \(release.version) is available").font(.callout.weight(.semibold))
+                Button("What's new") { NSWorkspace.shared.open(release.url) }
+                    .buttonStyle(.link).font(.caption)
+            }
+            Spacer()
+            Button("Update") { Updater.runUpdate(release) }
+                .buttonStyle(.borderedProminent)
+                .tint(.cyan)
+                .help("Downloads the new version and reinstalls it (asks for your password)")
+        }
+        .padding(10)
+        .background(Color.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.cyan.opacity(0.35)))
     }
 }
 
@@ -640,6 +664,12 @@ struct SettingsCard: View {
                     Divider()
                     SettingToggle(title: "Show percentage in menu bar", detail: nil, isOn: $showPercent)
                     SettingToggle(title: "Notify when tasks finish", detail: nil, isOn: $notifications)
+                    SettingToggle(title: "Check for updates", detail: "Once a day, from GitHub",
+                                  isOn: Binding(get: { UserDefaults.standard.object(forKey: "checkUpdates") as? Bool ?? true },
+                                                set: { v in
+                                                    UserDefaults.standard.set(v, forKey: "checkUpdates")
+                                                    model.checkForUpdates(force: v)
+                                                }))
                     SettingToggle(title: "Launch at login", detail: nil,
                                   isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 }
@@ -1108,6 +1138,7 @@ struct Footer: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .help("Keeping the Mac awake until the target is reached")
             }
+            Text("v\(appVersion)").font(.caption2).foregroundStyle(.tertiary)
             Spacer()
             Button("Battery Settings") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Battery-Settings.extension")!)

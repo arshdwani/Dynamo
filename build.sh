@@ -16,6 +16,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 "${SWIFTC[@]}" -parse-as-library "${SHARED[@]}" Sources/App/*.swift -framework IOKit \
     -o "$APP/Contents/MacOS/Dynamo"
 cp Resources/Info.plist "$APP/Contents/"
+VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' Sources/Shared/Version.swift)
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 
 codesign --force --sign - build/dynamo

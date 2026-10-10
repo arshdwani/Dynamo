@@ -85,6 +85,20 @@ Recommended afterwards:
 - Don't run another charge limiter (AlDente, batt, …) at the same time. They would fight
   over the same controls.
 
+## Updating
+
+Dynamo checks GitHub for a new release once a day. When there is one, a banner
+appears at the top of the panel. Click **Update**, and Terminal pulls the new version
+and reinstalls it (it asks for your password). You can also update by hand:
+
+```bash
+cd Dynamo && git pull && ./install.sh
+```
+
+To hear about new versions on GitHub, use **Watch → Custom → Releases** on this repo.
+The update check only reads the public "latest release" from GitHub. You can turn it
+off under **Settings → Check for updates**.
+
 ## Uninstall
 
 ```bash
@@ -135,6 +149,7 @@ covered by tests that don't need a real battery.
 ./build.sh snapshot                # render every tab to build/snapshots/ (light + dark)
 swift Tools/make-icon.swift        # regenerate the app icon
 swift Tools/make-readme-images.swift
+Tools/release.sh 1.3 "notes"       # bump, tag, push and publish a GitHub Release
 ```
 
 Issues and pull requests are welcome.

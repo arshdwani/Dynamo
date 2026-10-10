@@ -14,6 +14,7 @@ usage: dynamo <command>
   sleep on|off           keep the Mac awake while charging toward the limit
   led on|off             green MagSafe LED while holding at the limit
   lowpower <mode>        Low Power Mode: never | always | battery | adapter
+  version                print the version
   restore                (root) re-enable charging and adapter immediately
   daemon                 (root) run the background service
 
@@ -143,6 +144,8 @@ case "restore":
     guard geteuid() == 0 else { fail("restore needs root: sudo dynamo restore") }
     restoreDefaults()
     print("charging and adapter re-enabled")
+case "version", "--version", "-v":
+    print("Dynamo \(appVersion)")
 case "help", "-h", "--help":
     print(usage)
 default:

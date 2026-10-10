@@ -72,6 +72,10 @@ install -o root -g wheel -m 644 "Resources/$LABEL.plist" "$PLIST"
 install -o root -g wheel -m 644 Resources/dynamo.newsyslog.conf /etc/newsyslog.d/dynamo.conf
 launchctl bootstrap system "$PLIST"
 
+# Remember where the source lives so the app's Update button can pull and reinstall.
+echo "$PWD" > "$DIR/source-path"
+chmod 644 "$DIR/source-path"
+
 echo "Installing app..."
 pkill -x Dynamo 2>/dev/null || true
 rm -rf /Applications/Dynamo.app

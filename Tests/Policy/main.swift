@@ -105,6 +105,12 @@ check((try? JSONDecoder().decode(Config.self, from: Data(#"{"limit":70,"lowPower
 var weird = Config(); weird.limit = 20; weird.sailing = 30
 check(weird.sanitized.sailing == 10, "sailing can't push resume point below 10%")
 
+// Update version comparison
+check(isNewerVersion("1.10", than: "1.9"), "1.10 is newer than 1.9")
+check(isNewerVersion("1.2", than: "1.1.9"), "1.2 is newer than 1.1.9")
+check(!isNewerVersion("1.2", than: "1.2.0"), "1.2 equals 1.2.0")
+check(!isNewerVersion("1.1", than: "1.2"), "1.1 is older than 1.2")
+
 // History
 var hist: [HistorySample] = []
 let h0 = Date()

@@ -21,6 +21,8 @@ final class Model: ObservableObject {
     /// Low Power Mode setting as pmset reports it, and whether it is in effect right now.
     @Published var lowPowerMode: LowPowerMode?
     @Published var lowPowerActive = ProcessInfo.processInfo.isLowPowerModeEnabled
+    /// A newer release on GitHub, if there is one.
+    @Published var availableUpdate: Release?
     /// Energy sampling walks every process, so it only runs while someone is looking.
     var panelVisible = false {
         didSet { if panelVisible && !oldValue { refresh() } }
@@ -42,6 +44,7 @@ final class Model: ObservableObject {
     private var observers: [NSObjectProtocol] = []
 
     init() {
+        restoreKnownUpdate()
         refresh()
         _ = energy.sample()  // baseline, so the first look at the panel has real numbers
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
@@ -83,9 +86,35 @@ final class Model: ObservableObject {
                 await MainActor.run { self.appleHealth = h }
             }
         }
+        checkForUpdates()
         if now.timeIntervalSince(lastHistoryLoad) > 60 {
             history = History.load()
             lastHistoryLoad = now
+        }
+    }
+
+    /// Once a day (and at launch), unless turned off in Settings.
+    func checkForUpdates(force: Bool = false) {
+        let d = UserDefaults.standard
+        guard d.object(forKey: "checkUpdates") as? Bool ?? true else { availableUpdate = nil; return }
+        let last = d.double(forKey: "lastUpdateCheck")
+        guard force || Date().timeIntervalSince1970 - last > Updater.checkInterval || (availableUpdate == nil && last == 0)
+        else { return }
+        d.set(Date().timeIntervalSince1970, forKey: "lastUpdateCheck")
+        Task {
+            guard let r = await Updater.latestRelease() else { return }
+            d.set(r.version, forKey: "latestVersion")
+            d.set(r.url.absoluteString, forKey: "latestURL")
+            self.availableUpdate = isNewerVersion(r.version, than: appVersion) ? r : nil
+        }
+    }
+
+    /// The last known newer release, so the banner survives relaunches between checks.
+    private func restoreKnownUpdate() {
+        let d = UserDefaults.standard
+        if let v = d.string(forKey: "latestVersion"), let u = d.string(forKey: "latestURL").flatMap(URL.init(string:)),
+           isNewerVersion(v, than: appVersion), d.object(forKey: "checkUpdates") as? Bool ?? true {
+            availableUpdate = Release(version: v, url: u)
         }
     }
 
