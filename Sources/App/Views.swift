@@ -32,6 +32,35 @@ struct PanelView: View {
     }
 }
 
+/// "Check for Updates" button with an inline result.
+struct UpdateCheckRow: View {
+    @EnvironmentObject var model: Model
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button("Check for Updates") { model.checkForUpdatesNow() }
+                .controlSize(.small)
+                .disabled(model.updateCheck == .checking)
+            switch model.updateCheck {
+            case .checking:
+                ProgressView().controlSize(.small)
+                Text("Checking…").font(.caption).foregroundStyle(.secondary)
+            case .upToDate:
+                Label("You're up to date (\(appVersion))", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.green)
+            case .failed:
+                Label("Couldn't reach GitHub", systemImage: "wifi.exclamationmark")
+                    .font(.caption).foregroundStyle(.orange)
+            case .idle:
+                if let u = model.availableUpdate {
+                    Text("\(u.version) is available, see the banner above").font(.caption).foregroundStyle(.cyan)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 struct UpdateBanner: View {
     var release: Release
 
@@ -329,11 +358,12 @@ struct SettingLabel: View {
 /// the popover isn't the focused window.)
 struct PillSwitch: View {
     @Binding var isOn: Bool
+    var colors: [Color] = [.green, .cyan]
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Capsule()
-            .fill(isOn ? AnyShapeStyle(LinearGradient(colors: [.green, .cyan], startPoint: .leading, endPoint: .trailing))
+            .fill(isOn ? AnyShapeStyle(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
                        : AnyShapeStyle(Color.primary.opacity(0.16)))
             .frame(width: 32, height: 19)
             .overlay(alignment: isOn ? .trailing : .leading) {
@@ -586,14 +616,14 @@ struct PowerCard: View {
 
     var body: some View {
         let apps = model.significantEnergyApps
-        Card(title: "Power", icon: "leaf.fill") {
+        let on = Binding(get: { model.lowPowerSwitchOn }, set: { model.setLowPowerNow($0) })
+        Card(title: "Low Power Mode", icon: "leaf.fill") {
+            PillSwitch(isOn: on, colors: [.yellow, .orange])
+                .disabled(!model.daemonRunning)
+                .help("Turn Low Power Mode on or off now")
+        } content: {
             HStack {
-                Text("Low Power Mode")
-                if model.lowPowerActive {
-                    Text("ON").font(.caption2.weight(.bold)).foregroundStyle(.black)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.yellow, in: Capsule())
-                }
+                Text("Automatically").foregroundStyle(.secondary)
                 Spacer()
                 Picker("", selection: Binding(get: { model.lowPowerMode ?? .never },
                                               set: { model.setLowPowerMode($0) })) {
@@ -603,6 +633,7 @@ struct PowerCard: View {
                 .fixedSize()
                 .disabled(!model.daemonRunning)
             }
+            .font(.callout)
             Divider()
             HStack {
                 Text(apps.isEmpty ? "No Apps Using Significant Energy" : "Using Significant Energy")
@@ -664,12 +695,13 @@ struct SettingsCard: View {
                     Divider()
                     SettingToggle(title: "Show percentage in menu bar", detail: nil, isOn: $showPercent)
                     SettingToggle(title: "Notify when tasks finish", detail: nil, isOn: $notifications)
-                    SettingToggle(title: "Check for updates", detail: "Once a day, from GitHub",
+                    SettingToggle(title: "Automatic update checks", detail: "Once a day, from GitHub",
                                   isOn: Binding(get: { UserDefaults.standard.object(forKey: "checkUpdates") as? Bool ?? true },
                                                 set: { v in
                                                     UserDefaults.standard.set(v, forKey: "checkUpdates")
-                                                    model.checkForUpdates(force: v)
+                                                    if v { model.checkForUpdates(force: true) }
                                                 }))
+                    UpdateCheckRow()
                     SettingToggle(title: "Launch at login", detail: nil,
                                   isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 }

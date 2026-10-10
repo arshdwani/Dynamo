@@ -21,8 +21,14 @@ final class Model: ObservableObject {
     /// Low Power Mode setting as pmset reports it, and whether it is in effect right now.
     @Published var lowPowerMode: LowPowerMode?
     @Published var lowPowerActive = ProcessInfo.processInfo.isLowPowerModeEnabled
+    /// What the Low Power Mode switch was just set to, until macOS catches up (~5 s).
+    @Published private var lowPowerPending: Bool?
+    private var lowPowerPendingAt = Date.distantPast
     /// A newer release on GitHub, if there is one.
     @Published var availableUpdate: Release?
+    enum UpdateCheck { case idle, checking, upToDate, failed }
+    /// Result of the last manual "Check for Updates".
+    @Published var updateCheck = UpdateCheck.idle
     /// Energy sampling walks every process, so it only runs while someone is looking.
     var panelVisible = false {
         didSet { if panelVisible && !oldValue { refresh() } }
@@ -54,6 +60,7 @@ final class Model: ObservableObject {
             forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 self?.lowPowerActive = ProcessInfo.processInfo.isLowPowerModeEnabled
+                self?.lowPowerPending = nil
                 self?.lastLowPowerRead = .distantPast
             }
         })
@@ -93,19 +100,37 @@ final class Model: ObservableObject {
         }
     }
 
-    /// Once a day (and at launch), unless turned off in Settings.
+    /// Automatic check: once a day (and at launch), unless turned off in Settings.
     func checkForUpdates(force: Bool = false) {
         let d = UserDefaults.standard
-        guard d.object(forKey: "checkUpdates") as? Bool ?? true else { availableUpdate = nil; return }
+        guard d.object(forKey: "checkUpdates") as? Bool ?? true else { return }
         let last = d.double(forKey: "lastUpdateCheck")
-        guard force || Date().timeIntervalSince1970 - last > Updater.checkInterval || (availableUpdate == nil && last == 0)
-        else { return }
+        guard force || Date().timeIntervalSince1970 - last > Updater.checkInterval else { return }
+        runUpdateCheck(manual: false)
+    }
+
+    /// The "Check for Updates" button: always checks, and reports the result.
+    func checkForUpdatesNow() {
+        guard updateCheck != .checking else { return }
+        runUpdateCheck(manual: true)
+    }
+
+    private func runUpdateCheck(manual: Bool) {
+        let d = UserDefaults.standard
         d.set(Date().timeIntervalSince1970, forKey: "lastUpdateCheck")
+        if manual { updateCheck = .checking }
         Task {
-            guard let r = await Updater.latestRelease() else { return }
-            d.set(r.version, forKey: "latestVersion")
-            d.set(r.url.absoluteString, forKey: "latestURL")
-            self.availableUpdate = isNewerVersion(r.version, than: appVersion) ? r : nil
+            let r = await Updater.latestRelease()
+            if let r {
+                d.set(r.version, forKey: "latestVersion")
+                d.set(r.url.absoluteString, forKey: "latestURL")
+                self.availableUpdate = isNewerVersion(r.version, than: appVersion) ? r : nil
+            }
+            guard manual else { return }
+            self.updateCheck = r == nil ? .failed : (self.availableUpdate == nil ? .upToDate : .idle)
+            // Let the result linger briefly, then clear it.
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if self.updateCheck != .checking { self.updateCheck = .idle }
         }
     }
 
@@ -131,6 +156,18 @@ final class Model: ObservableObject {
         } catch {
             saveError = "Can't save settings. Run install.sh first."
         }
+    }
+
+    /// The quick switch: on now (Always) or off (Never), like the system battery menu.
+    var lowPowerSwitchOn: Bool {
+        if let p = lowPowerPending, Date().timeIntervalSince(lowPowerPendingAt) < 15 { return p }
+        return lowPowerActive
+    }
+
+    func setLowPowerNow(_ on: Bool) {
+        lowPowerPending = on
+        lowPowerPendingAt = Date()
+        setLowPowerMode(on ? .always : .never)
     }
 
     func setLowPowerMode(_ mode: LowPowerMode) {

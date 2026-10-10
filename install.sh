@@ -77,12 +77,16 @@ echo "$PWD" > "$DIR/source-path"
 chmod 644 "$DIR/source-path"
 
 echo "Installing app..."
+if ! codesign --verify --deep build/Dynamo.app 2>/dev/null; then
+    echo "build/Dynamo.app is incomplete (was a build running at the same time?). Run ./install.sh again." >&2
+    exit 1
+fi
 pkill -x Dynamo 2>/dev/null || true
 rm -rf /Applications/Dynamo.app
 cp -R build/Dynamo.app /Applications/
 chown -R "$USER_NAME":staff /Applications/Dynamo.app
 touch /Applications/Dynamo.app  # refresh the Finder/Dock icon cache
-sudo -u "$USER_NAME" open /Applications/Dynamo.app
+sudo -u "$USER_NAME" open /Applications/Dynamo.app || echo "Open Dynamo from your Applications folder." >&2
 
 sleep 3
 if ! launchctl print "system/$LABEL" 2>/dev/null | grep -q "state = running"; then

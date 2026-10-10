@@ -10,7 +10,10 @@ SHARED=(Sources/smc.c Sources/Shared/*.swift)
 
 "${SWIFTC[@]}" "${SHARED[@]}" Sources/Daemon/*.swift -framework IOKit -o build/dynamo
 
-APP=build/Dynamo.app
+# Build the app beside the old one and swap it in at the end, so a concurrent
+# install.sh never copies a half-built bundle.
+FINAL=build/Dynamo.app
+APP=build/.Dynamo.app.partial
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 "${SWIFTC[@]}" -parse-as-library "${SHARED[@]}" Sources/App/*.swift -framework IOKit \
@@ -23,6 +26,8 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 
 codesign --force --sign - build/dynamo
 codesign --force --sign - "$APP"
+rm -rf "$FINAL"
+mv "$APP" "$FINAL"
 
 if [[ "${1:-}" == snapshot ]]; then
     APP_SOURCES=$(ls Sources/App/*.swift | grep -v '/App.swift$')
