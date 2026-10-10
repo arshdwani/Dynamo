@@ -7,7 +7,20 @@ let out = CommandLine.arguments.dropFirst().first ?? "build/snapshots"
 try? FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
 
 let app = NSApplication.shared
-app.setActivationPolicy(.prohibited)
+// Controls only draw in their active (colored) state in the key window of the
+// active app, so the tool briefly becomes a background app and takes focus.
+app.setActivationPolicy(.accessory)
+
+final class KeyWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+/// Opaque stand-ins for the popover's material, which renders as flat grey offscreen.
+func background(_ appearance: NSAppearance.Name) -> NSColor {
+    appearance == .darkAqua ? NSColor(srgbRed: 0.155, green: 0.155, blue: 0.165, alpha: 1)
+                            : NSColor(srgbRed: 0.965, green: 0.965, blue: 0.97, alpha: 1)
+}
 
 MainActor.assumeIsolated {
     let model = Model()
@@ -41,28 +54,35 @@ MainActor.assumeIsolated {
                                     reason: decide(model.config, b, PolicyState()).reason)
     }
 
+    NSApp.activate(ignoringOtherApps: true)
     for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
         for (tab, tabName) in [(0, "control"), (3, "energy"), (1, "health"), (2, "history")] {
             model.tab = tab
-            let host = NSHostingView(rootView: PanelView().environmentObject(model))
+            let host = NSHostingView(rootView: PanelView().environmentObject(model)
+                .environment(\.controlActiveState, .key))
             host.appearance = NSAppearance(named: appearance)
             let size = host.fittingSize
-            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
-                                  backing: .buffered, defer: false)
+            // Far off-screen, but ordered in and key so controls render as active.
+            let window = KeyWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size),
+                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.appearance = NSAppearance(named: appearance)
-            let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-            bg.material = .popover
-            bg.state = .active
+            let bg = NSView(frame: NSRect(origin: .zero, size: size))
+            bg.wantsLayer = true
+            bg.appearance = NSAppearance(named: appearance)
+            bg.layer?.backgroundColor = background(appearance).cgColor
             host.frame = bg.bounds
             bg.addSubview(host)
             window.contentView = bg
+            window.orderFrontRegardless()
+            window.makeKey()
             window.layoutIfNeeded()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
             guard let rep = bg.bitmapImageRepForCachingDisplay(in: bg.bounds) else { continue }
             bg.cacheDisplay(in: bg.bounds, to: rep)
             let path = "\(out)/\(tabName)-\(name).png"
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
             print(path, Int(size.width), "x", Int(size.height))
+            window.orderOut(nil)
         }
     }
     // Menu bar icon variants.

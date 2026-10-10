@@ -284,7 +284,7 @@ struct SettingToggle: View {
         HStack {
             SettingLabel(title: title, detail: detail)
             Spacer(minLength: 8)
-            Toggle("", isOn: $isOn).toggleStyle(.switch).controlSize(.mini).labelsHidden()
+            PillSwitch(isOn: $isOn)
         }
     }
 }
@@ -298,6 +298,80 @@ struct SettingLabel: View {
             Text(title)
             if let detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
         }
+    }
+}
+
+/// The app's own switch, in its accent color. (System switches turn grey whenever
+/// the popover isn't the focused window.)
+struct PillSwitch: View {
+    @Binding var isOn: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Capsule()
+            .fill(isOn ? AnyShapeStyle(LinearGradient(colors: [.green, .cyan], startPoint: .leading, endPoint: .trailing))
+                       : AnyShapeStyle(Color.primary.opacity(0.16)))
+            .frame(width: 32, height: 19)
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle().fill(.white).shadow(color: .black.opacity(0.25), radius: 1, y: 0.5).padding(2)
+            }
+            .opacity(isEnabled ? 1 : 0.5)
+            .animation(.easeInOut(duration: 0.15), value: isOn)
+            .contentShape(Capsule())
+            .onTapGesture { if isEnabled { isOn.toggle() } }
+            .accessibilityElement()
+            .accessibilityAddTraits(.isButton)
+            .accessibilityValue(isOn ? "On" : "Off")
+            .accessibilityAction { if isEnabled { isOn.toggle() } }
+    }
+}
+
+/// Charge-limit slider (20–100%) with a green→cyan fill like the header ring.
+struct LimitSlider: View {
+    var value: Double
+    var onChange: (Double) -> Void
+    var onCommit: (Double) -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    private let knob: CGFloat = 20
+    private let range = 20.0...100.0
+
+    var body: some View {
+        GeometryReader { geo in
+            let track = max(1, geo.size.width - knob)
+            let x = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound)) * track
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.12))
+                    .frame(width: track, height: 6)
+                    .offset(x: knob / 2)
+                Capsule().fill(LinearGradient(colors: [.green, .cyan], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(6, x), height: 6)
+                    .offset(x: knob / 2)
+                Circle().fill(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
+                    .frame(width: knob, height: knob)
+                    .offset(x: x)
+            }
+            .frame(height: knob)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { g in onChange(snap(g.location.x, track)) }
+                .onEnded { g in onCommit(snap(g.location.x, track)) })
+        }
+        .frame(height: knob)
+        .opacity(isEnabled ? 1 : 0.5)
+        .accessibilityElement()
+        .accessibilityLabel("Charge limit")
+        .accessibilityValue("\(Int(value)) percent")
+        .accessibilityAdjustableAction { dir in
+            let step = dir == .increment ? 5.0 : -5.0
+            onCommit(min(range.upperBound, max(range.lowerBound, value + step)))
+        }
+    }
+
+    private func snap(_ x: CGFloat, _ track: CGFloat) -> Double {
+        let f = Double(min(max(0, (x - knob / 2) / track), 1))
+        return (range.lowerBound + f * (range.upperBound - range.lowerBound)).rounded()
     }
 }
 
@@ -333,7 +407,7 @@ struct LimitCard: View {
         let shown = Int(model.draftLimit ?? Double(cfg.limit))
         let enabled = Binding(get: { model.config.enabled }, set: { v in model.update { $0.enabled = v } })
         Card(title: "Charge Limit", icon: "battery.75percent") {
-            Toggle("", isOn: enabled).toggleStyle(.switch).controlSize(.mini).labelsHidden()
+            PillSwitch(isOn: enabled)
         } content: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -341,15 +415,12 @@ struct LimitCard: View {
                     Text(shown >= 100 ? "Charges fully" : "Resumes below \(shown - cfg.sailing)%")
                         .font(.callout).foregroundStyle(.secondary)
                 }
-                Slider(value: Binding(get: { model.draftLimit ?? Double(model.config.limit) },
-                                      set: { model.draftLimit = $0 }),
-                       in: 20...100, step: 1) { editing in
-                    if !editing, let d = model.draftLimit {
-                        model.update { $0.limit = Int(d) }
-                        model.draftLimit = nil
-                    }
+                LimitSlider(value: model.draftLimit ?? Double(cfg.limit)) { v in
+                    model.draftLimit = v
+                } onCommit: { v in
+                    model.update { $0.limit = Int(v) }
+                    model.draftLimit = nil
                 }
-                .tint(.cyan)
                 HStack(spacing: 6) {
                     ForEach([50, 60, 70, 80, 90, 100], id: \.self) { v in
                         Button("\(v)") { model.update { $0.limit = v } }
