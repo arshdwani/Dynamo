@@ -29,7 +29,7 @@ enum Updater {
     static var source: Source {
         guard let s = try? String(contentsOfFile: Paths.dir + "/source-path", encoding: .utf8) else { return .unknown }
         let path = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        if path.contains("/Cellar/dynamo/") { return .homebrew }
+        if path.contains("/Cellar/dynamo/") || path.hasSuffix("/opt/dynamo/libexec") { return .homebrew }
         return FileManager.default.fileExists(atPath: path + "/.git") ? .git(path) : .unknown
     }
 
