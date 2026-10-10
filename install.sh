@@ -13,7 +13,10 @@ if [[ $(uname -m) != arm64 ]]; then
 fi
 
 if [[ $EUID -ne 0 ]]; then
-    ./build.sh
+    # A git checkout builds first; a Homebrew install ships prebuilt (dynamo-setup).
+    if [[ -d .git || ! -x build/dynamo || ! -d build/Dynamo.app ]]; then
+        ./build.sh
+    fi
     exec sudo "$0" "$@"
 fi
 

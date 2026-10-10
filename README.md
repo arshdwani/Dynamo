@@ -68,15 +68,23 @@ dependencies, no telemetry and no account.
 
 ## Install
 
+**With Homebrew** (recommended):
+
+```bash
+brew install arshdwani/tap/dynamo
+dynamo-setup
+```
+
+**From source:**
+
 ```bash
 git clone https://github.com/arshdwani/Dynamo.git
 cd Dynamo
 ./install.sh
 ```
 
-The installer builds from source, asks for your password once (the charging service needs
-root), and puts **Dynamo** in your menu bar. Re-run it any time to upgrade; your settings
-are kept.
+Either way, setup asks for your password once (the charging service runs as root) and
+puts **Dynamo** in your menu bar. Re-running it upgrades and keeps your settings.
 
 Recommended afterwards:
 - **System Settings → Battery → Optimized Battery Charging**: turn it off so macOS doesn't
@@ -92,7 +100,8 @@ appears at the top of the panel. Click **Update**, and Terminal pulls the new ve
 and reinstalls it (it asks for your password). You can also update by hand:
 
 ```bash
-cd Dynamo && git pull && ./install.sh
+brew upgrade dynamo && dynamo-setup        # Homebrew
+cd Dynamo && git pull && ./install.sh      # from source
 ```
 
 To hear about new versions on GitHub, use **Watch → Custom → Releases** on this repo.
@@ -102,7 +111,8 @@ off under **Settings → Check for updates**.
 ## Uninstall
 
 ```bash
-./uninstall.sh
+dynamo-uninstall && brew uninstall dynamo  # Homebrew
+./uninstall.sh                             # from source
 ```
 
 This removes everything and hands charging back to macOS.

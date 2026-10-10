@@ -23,20 +23,26 @@ enum Updater {
         return Release(version: tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV")), url: page)
     }
 
-    /// Where install.sh was run from, so the update can pull and reinstall there.
-    static var sourceFolder: String? {
-        guard let s = try? String(contentsOfFile: Paths.dir + "/source-path", encoding: .utf8) else { return nil }
+    /// How Dynamo was installed, from where install.sh ran (recorded at install time).
+    enum Source { case git(String), homebrew, unknown }
+
+    static var source: Source {
+        guard let s = try? String(contentsOfFile: Paths.dir + "/source-path", encoding: .utf8) else { return .unknown }
         let path = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        return FileManager.default.fileExists(atPath: path + "/.git") ? path : nil
+        if path.contains("/Cellar/dynamo/") { return .homebrew }
+        return FileManager.default.fileExists(atPath: path + "/.git") ? .git(path) : .unknown
     }
 
     /// Opens Terminal with the update commands (it asks for the password there).
     static func runUpdate(_ release: Release) {
-        guard let folder = sourceFolder else {
+        let script: String
+        switch source {
+        case .git(let folder): script = updateScript(version: release.version, folder: folder)
+        case .homebrew: script = brewUpdateScript(version: release.version)
+        case .unknown:
             NSWorkspace.shared.open(release.url)
             return
         }
-        let script = updateScript(version: release.version, folder: folder)
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("Update Dynamo.command")
         do {
             try script.write(to: file, atomically: true, encoding: .utf8)
@@ -45,6 +51,17 @@ enum Updater {
         } catch {
             NSWorkspace.shared.open(release.url)
         }
+    }
+
+    static let brewFormula = "arshdwani/tap/dynamo"
+
+    static func brewUpdateScript(version: String) -> String {
+        """
+        #!/bin/bash
+        export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+        echo "Updating Dynamo to \(version) with Homebrew…"
+        brew update && brew upgrade \(brewFormula) && dynamo-setup
+        """
     }
 
     static func updateScript(version: String, folder: String) -> String {
