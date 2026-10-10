@@ -29,3 +29,17 @@ BODY="${NOTES:-See the commits since the previous release.}
 
 **To update:** click **Update** in Dynamo's panel, or run \`git pull && ./install.sh\` in your Dynamo folder."
 gh release create "v$V" --title "Dynamo $V" --notes "$BODY"
+
+# Point the Homebrew formula (arshdwani/homebrew-tap) at the new release.
+TAP=$(brew --repository arshdwani/tap 2>/dev/null || true)
+if [[ -d "$TAP/.git" ]]; then
+    URL="https://github.com/arshdwani/Dynamo/archive/refs/tags/v$V.tar.gz"
+    SHA=$(curl -fsSL "$URL" | shasum -a 256 | cut -d' ' -f1)
+    sed -i '' -e "s|^  url \".*\"|  url \"$URL\"|" -e "s|^  sha256 \".*\"|  sha256 \"$SHA\"|" "$TAP/Formula/dynamo.rb"
+    git -C "$TAP" -c user.name="$(git config user.name)" -c user.email="$(git config user.email)" \
+        commit -qam "dynamo $V"
+    git -C "$TAP" push -q
+    echo "Homebrew formula updated to $V"
+else
+    echo "Homebrew tap not found: run 'brew tap arshdwani/tap', then update Formula/dynamo.rb by hand." >&2
+fi
