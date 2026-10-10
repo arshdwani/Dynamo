@@ -84,6 +84,15 @@ MainActor.assumeIsolated {
             bg.cacheDisplay(in: bg.bounds, to: rep)
             let path = "\(out)/\(tabName)-\(name).png"
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            // 3x render for large-format images (Tools/make-social-images.swift).
+            let big = ImageRenderer(content: PanelView().environmentObject(model)
+                .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
+                .background(Color(nsColor: background(appearance))))
+            big.scale = 3
+            if let cg = big.cgImage {
+                try? NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])?
+                    .write(to: URL(fileURLWithPath: "\(out)/\(tabName)-\(name)@3x.png"))
+            }
             print(path, Int(size.width), "x", Int(size.height))
             window.orderOut(nil)
         }

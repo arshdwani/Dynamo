@@ -39,11 +39,10 @@ struct UpdateCheckRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Button("Check for Updates") { model.checkForUpdatesNow() }
-                .controlSize(.small)
+                .buttonStyle(CapsuleButtonStyle())
                 .disabled(model.updateCheck == .checking)
             switch model.updateCheck {
             case .checking:
-                ProgressView().controlSize(.small)
                 Text("Checking…").font(.caption).foregroundStyle(.secondary)
             case .upToDate:
                 Label("You're up to date (\(appVersion))", systemImage: "checkmark.circle.fill")
@@ -70,12 +69,11 @@ struct UpdateBanner: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Dynamo \(release.version) is available").font(.callout.weight(.semibold))
                 Button("What's new") { NSWorkspace.shared.open(release.url) }
-                    .buttonStyle(.link).font(.caption)
+                    .buttonStyle(LinkStyle()).font(.caption)
             }
             Spacer()
             Button("Update") { Updater.runUpdate(release) }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
+                .buttonStyle(CapsuleButtonStyle(prominent: true))
                 .help("Downloads the new version and reinstalls it (asks for your password)")
         }
         .padding(10)
@@ -354,6 +352,133 @@ struct SettingLabel: View {
     }
 }
 
+// MARK: - Own controls
+// Drawn in SwiftUI rather than AppKit so they keep their colors when the popover
+// isn't focused, and so the panel renders crisply at any scale for screenshots.
+
+struct LinkStyle: ButtonStyle {
+    var color: Color = .cyan
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(color)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .contentShape(Rectangle())
+    }
+}
+
+struct CapsuleButtonStyle: ButtonStyle {
+    var prominent = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.callout.weight(prominent ? .semibold : .regular))
+            .padding(.horizontal, prominent ? 14 : 10)
+            .padding(.vertical, 5)
+            .foregroundStyle(prominent ? Color.black : Color.primary)
+            .background(prominent ? AnyShapeStyle(Color.cyan) : AnyShapeStyle(Color.primary.opacity(0.1)),
+                        in: Capsule())
+            .opacity(!isEnabled ? 0.5 : configuration.isPressed ? 0.75 : 1)
+            .contentShape(Capsule())
+    }
+}
+
+/// A pop-up choice: looks like a pill, opens a native menu.
+struct ChoiceMenu<T: Hashable>: View {
+    var options: [(T, String)]
+    var selection: T
+    var onSelect: (T) -> Void
+
+    var body: some View {
+        Button(action: showMenu) {
+            HStack(spacing: 6) {
+                Text(options.first { $0.0 == selection }?.1 ?? "")
+                Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color.primary.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(LinkStyle(color: .primary))
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+        for (value, title) in options {
+            let item = ClosureMenuItem(title: title) { onSelect(value) }
+            item.state = value == selection ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+}
+
+final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError("not used") }
+
+    @objc private func fire() { handler() }
+}
+
+struct StepperControl: View {
+    var value: Int
+    var range: ClosedRange<Int>
+    var onChange: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            stepButton("minus", to: value - 1)
+            Divider().frame(height: 14)
+            stepButton("plus", to: value + 1)
+        }
+        .background(Color.primary.opacity(0.1), in: Capsule())
+    }
+
+    private func stepButton(_ icon: String, to next: Int) -> some View {
+        Button { onChange(next) } label: {
+            Image(systemName: icon).font(.caption.weight(.bold))
+                .frame(width: 28, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(LinkStyle(color: .primary))
+        .disabled(!range.contains(next))
+        .opacity(range.contains(next) ? 1 : 0.35)
+    }
+}
+
+struct Segmented<T: Hashable>: View {
+    var options: [(T, String)]
+    @Binding var selection: T
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(options, id: \.0) { value, title in
+                let selected = value == selection
+                Button { withAnimation(.easeInOut(duration: 0.15)) { selection = value } } label: {
+                    Text(title)
+                        .font(.callout.weight(selected ? .semibold : .regular))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .background(selected ? Color.cyan.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 7))
+                        .foregroundStyle(selected ? Color.primary : .secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+    }
+}
+
 /// The app's own switch, in its accent color. (System switches turn grey whenever
 /// the popover isn't the focused window.)
 struct PillSwitch: View {
@@ -625,13 +750,9 @@ struct PowerCard: View {
             HStack {
                 Text("Automatically").foregroundStyle(.secondary)
                 Spacer()
-                Picker("", selection: Binding(get: { model.lowPowerMode ?? .never },
-                                              set: { model.setLowPowerMode($0) })) {
-                    ForEach(LowPowerMode.allCases) { Text($0.title).tag($0) }
-                }
-                .labelsHidden()
-                .fixedSize()
-                .disabled(!model.daemonRunning)
+                ChoiceMenu(options: LowPowerMode.allCases.map { ($0, $0.title) },
+                           selection: model.lowPowerMode ?? .never) { model.setLowPowerMode($0) }
+                    .disabled(!model.daemonRunning)
             }
             .font(.callout)
             Divider()
@@ -640,7 +761,7 @@ struct PowerCard: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Details") { withAnimation { model.tab = 3 } }
-                    .buttonStyle(.link).font(.caption)
+                    .buttonStyle(LinkStyle()).font(.caption)
             }
             ForEach(apps.prefix(4)) { AppEnergyRow(app: $0, maxWatts: apps.first?.watts ?? 1, compact: true) }
         }
@@ -662,10 +783,7 @@ struct SettingsCard: View {
                         SettingLabel(title: "Sailing range: \(cfg.sailing)%",
                                      detail: "Avoids topping up after every small drop")
                         Spacer(minLength: 8)
-                        Stepper("", value: Binding(get: { model.config.sailing },
-                                                   set: { v in model.update { $0.sailing = v } }),
-                                in: 0...30)
-                            .labelsHidden()
+                        StepperControl(value: cfg.sailing, range: 0...30) { v in model.update { $0.sailing = v } }
                     }
                     SettingToggle(title: "Pause charging when hot",
                                   detail: "Heat ages batteries faster than anything else",
@@ -676,10 +794,9 @@ struct SettingsCard: View {
                             SettingLabel(title: "Pause above \(Int(cfg.heatMaxC)) °C", detail: nil)
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 8)
-                            Stepper("", value: Binding(get: { model.config.heatMaxC },
-                                                       set: { v in model.update { $0.heatMaxC = v } }),
-                                    in: 25...60)
-                                .labelsHidden()
+                            StepperControl(value: Int(cfg.heatMaxC), range: 25...60) { v in
+                                model.update { $0.heatMaxC = Double(v) }
+                            }
                         }
                         .padding(.leading, 12)
                     }
@@ -1017,14 +1134,7 @@ struct HistoryTab: View {
         // Don't squash a short history into the right edge of a long window.
         let since = max(windowStart, samples.first?.t ?? windowStart)
         VStack(alignment: .leading, spacing: 10) {
-            Picker("", selection: $hours) {
-                Text("6 hours").tag(6)
-                Text("24 hours").tag(24)
-                Text("48 hours").tag(48)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: .infinity)
+            Segmented(options: [(6, "6 hours"), (24, "24 hours"), (48, "48 hours")], selection: $hours)
 
             if samples.count < 2 {
                 Card {
@@ -1175,11 +1285,11 @@ struct Footer: View {
             Button("Battery Settings") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Battery-Settings.extension")!)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(LinkStyle(color: .secondary))
             .font(.caption)
             .help("Open macOS Battery settings")
             Button("Quit") { NSApplication.shared.terminate(nil) }
-                .buttonStyle(.borderless)
+                .buttonStyle(LinkStyle(color: .secondary))
                 .font(.caption)
         }
     }
