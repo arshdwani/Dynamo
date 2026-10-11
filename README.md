@@ -151,6 +151,11 @@ covered by tests that don't need a real battery.
 > generations, and Dynamo always re-enables charging when it stops, but use it at your own
 > risk.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for exactly what the installer and the root service do,
+and how to report a vulnerability privately.
+
 ## Development
 
 ```bash
