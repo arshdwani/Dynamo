@@ -118,5 +118,13 @@ check(History.record(bat(50), into: &hist, now: h0), "history records first samp
 check(!History.record(bat(50), into: &hist, now: h0 + 60), "history skips samples within 5 min")
 check(History.record(bat(50), into: &hist, now: h0 + 49 * 3600) && hist.count == 1, "history trims >48h")
 
+// The essentials-only read must see the same battery as the full one (skipped without a battery, as on CI).
+if let full = BatteryInfo.read(), let light = BatteryInfo.read(essentialsOnly: true) {
+    check(light.percent == full.percent && light.pluggedIn == full.pluggedIn && light.isCharging == full.isCharging
+          && light.fullyCharged == full.fullyCharged && abs(light.temperatureC - full.temperatureC) < 1
+          && abs(light.voltage - full.voltage) < 0.2 && light.percent > 0 && light.voltage > 0,
+          "essentials-only battery read matches the full read")
+}
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)
