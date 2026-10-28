@@ -5,9 +5,12 @@ import SwiftUI
 
 struct PanelView: View {
     @EnvironmentObject var model: Model
+    /// The screen's free height. A taller panel (say, Settings expanded) would run off
+    /// the bottom of the screen, so past this the tab scrolls between header and footer.
+    var maxHeight: CGFloat = .infinity
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        PanelStack(spacing: 12, maxHeight: maxHeight - 28) {  // 28: the padding
             if model.iconHidden {
                 Notice(text: "Your menu bar icon is hidden behind the notch. ⌘-drag other icons off the "
                        + "menu bar to make room. Opening Dynamo again always shows this window.",
@@ -16,7 +19,7 @@ struct PanelView: View {
             if let update = model.availableUpdate { UpdateBanner(release: update) }
             Header()
             TabBar()
-            Group {
+            let tab = Group {
                 switch model.tab {
                 case 1: HealthTab()
                 case 2: HistoryTab()
@@ -25,10 +28,61 @@ struct PanelView: View {
                 }
             }
             .transition(.opacity)
+            if maxHeight < .infinity {
+                ScrollView { tab }
+                    .bounceOnlyWhenScrollable()
+                    .layoutValue(key: Scrolls.self, value: true)
+            } else {
+                tab  // uncapped (snapshots): ImageRenderer can't draw a ScrollView's content
+            }
             Footer()
         }
         .padding(14)
         .frame(width: 360)
+    }
+}
+
+/// Stacks the panel's sections like a leading VStack, each at its natural height, except
+/// that the one marked `Scrolls` gives up height once the total would pass `maxHeight`.
+/// A VStack would let that ScrollView shrink at will, and the window, which sizes to
+/// the panel's minimum, would open squashed; here the panel's height is always exact.
+struct PanelStack: Layout {
+    var spacing: CGFloat
+    var maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width
+            ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let heights = heights(width: width, subviews)
+        return CGSize(width: width, height: heights.reduce(0, +) + spacing * CGFloat(max(0, heights.count - 1)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for (view, height) in zip(subviews, heights(width: bounds.width, subviews)) {
+            view.place(at: CGPoint(x: bounds.minX, y: y), proposal: ProposedViewSize(width: bounds.width, height: height))
+            y += height + spacing
+        }
+    }
+
+    private func heights(width: CGFloat, _ subviews: Subviews) -> [CGFloat] {
+        var heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+        if let i = subviews.firstIndex(where: { $0[Scrolls.self] }) {
+            let rest = heights.reduce(0, +) - heights[i] + spacing * CGFloat(heights.count - 1)
+            heights[i] = max(0, min(heights[i], maxHeight - rest))
+        }
+        return heights
+    }
+}
+
+private struct Scrolls: LayoutValueKey {
+    static let defaultValue = false
+}
+
+extension View {
+    /// The panel usually fits, and then it shouldn't rubber-band under a two-finger swipe.
+    @ViewBuilder func bounceOnlyWhenScrollable() -> some View {
+        if #available(macOS 13.3, *) { scrollBounceBehavior(.basedOnSize) } else { self }
     }
 }
 
@@ -591,7 +645,7 @@ struct LimitCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("\(shown)%").font(.system(size: 28, weight: .bold, design: .rounded)).monospacedDigit()
-                    Text(shown >= 100 ? "Charges fully" : "Resumes below \(shown - cfg.sailing)%")
+                    Text(shown >= 100 ? "Charges fully" : "Resumes at \(shown - cfg.sailing)%")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 LimitSlider(value: model.draftLimit ?? Double(cfg.limit)) { v in
@@ -773,6 +827,7 @@ struct SettingsCard: View {
     @AppStorage("settingsOpen") private var open = false
     @AppStorage("showPercent") private var showPercent = true
     @AppStorage("notifications") private var notifications = true
+    @AppStorage("checkUpdates") private var checkUpdates = true
 
     var body: some View {
         let cfg = model.config
@@ -813,10 +868,11 @@ struct SettingsCard: View {
                     SettingToggle(title: "Show percentage in menu bar", detail: nil, isOn: $showPercent)
                     SettingToggle(title: "Notify when tasks finish", detail: nil, isOn: $notifications)
                     SettingToggle(title: "Automatic update checks", detail: "Once a day, from GitHub",
-                                  isOn: Binding(get: { UserDefaults.standard.object(forKey: "checkUpdates") as? Bool ?? true },
+                                  isOn: Binding(get: { checkUpdates },
                                                 set: { v in
-                                                    UserDefaults.standard.set(v, forKey: "checkUpdates")
-                                                    if v { model.checkForUpdates(force: true) }
+                                                    checkUpdates = v
+                                                    // Off also drops a known update's banner, as at launch.
+                                                    if v { model.checkForUpdates(force: true) } else { model.availableUpdate = nil }
                                                 }))
                     UpdateCheckRow()
                     SettingToggle(title: "Launch at login", detail: nil,

@@ -291,7 +291,7 @@ final class Model: ObservableObject {
             return cfg.enabled ? "Will charge to \(cfg.limit)% when plugged in" : "Calculating time remaining…"
         case .charging: return "Up to \(cfg.limit)%"
         case .holding: return "Charging paused at \(cfg.limit)%"
-        case .sailing: return "Charging resumes below \(cfg.limit - cfg.sailing)%"
+        case .sailing: return "Charging resumes at \(cfg.limit - cfg.sailing)%"
         case .heatPaused, .discharging, .calibrating, .topUp: return status?.reason ?? ""
         case .noConfig: return "Run install.sh to finish setup"
         }

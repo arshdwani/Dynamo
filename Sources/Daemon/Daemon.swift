@@ -87,7 +87,8 @@ final class Daemon {
             asleepSince = nil
         }
         guard let bat = BatteryInfo.read() else {
-            writeStatus(mode: nil, reason: "Battery unreadable", error: "Could not read AppleSmartBattery")
+            writeStatus(mode: nil, reason: "Battery unreadable", error: "Could not read AppleSmartBattery",
+                        inhibited: ChargeControl.chargingInhibited, adapterDisabled: ChargeControl.adapterDisabled)
             return
         }
         if History.record(bat, into: &history) { History.save(history) }
@@ -136,15 +137,21 @@ final class Daemon {
         event = (text, Date())
     }
 
+    /// Each SMC key is read once per tick (a read is a kernel round trip), and again
+    /// only after a write, so the status reports what the SMC actually took.
     private func apply(_ d: Decision) {
         var error: String?
+        var inhibited = ChargeControl.chargingInhibited
+        var adapterDisabled = ChargeControl.adapterDisabled
         do {
-            if ChargeControl.chargingInhibited != d.inhibitCharging {
+            if inhibited != d.inhibitCharging {
                 try ChargeControl.setChargingInhibited(d.inhibitCharging)
+                inhibited = ChargeControl.chargingInhibited
                 log("charging \(d.inhibitCharging ? "inhibited" : "enabled"): \(d.reason)")
             }
-            if (ChargeControl.adapterDisabled ?? false) != d.disableAdapter {
+            if (adapterDisabled ?? false) != d.disableAdapter {
                 try ChargeControl.setAdapterDisabled(d.disableAdapter)
+                adapterDisabled = ChargeControl.adapterDisabled
                 log("adapter \(d.disableAdapter ? "disabled" : "enabled"): \(d.reason)")
             }
         } catch let e {
@@ -153,7 +160,7 @@ final class Daemon {
         }
         applyLED(green: d.greenLED)
         setSleepPrevented(d.preventSleep)
-        writeStatus(mode: d.mode, reason: d.reason, error: error)
+        writeStatus(mode: d.mode, reason: d.reason, error: error, inhibited: inhibited, adapterDisabled: adapterDisabled)
     }
 
     /// Only touches the LED while overriding it, so macOS keeps control otherwise.
@@ -185,10 +192,10 @@ final class Daemon {
         }
     }
 
-    private func writeStatus(mode: ChargeMode?, reason: String, error: String?) {
+    private func writeStatus(mode: ChargeMode?, reason: String, error: String?, inhibited: Bool?, adapterDisabled: Bool?) {
         let s = DaemonStatus(updatedAt: Date(), mode: mode,
-                             chargingInhibited: ChargeControl.chargingInhibited ?? false,
-                             adapterDisabled: ChargeControl.adapterDisabled ?? false,
+                             chargingInhibited: inhibited ?? false,
+                             adapterDisabled: adapterDisabled ?? false,
                              sleepPrevented: assertion != 0,
                              reason: reason, error: error,
                              calibration: state.calibration,
