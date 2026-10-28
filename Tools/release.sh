@@ -22,7 +22,7 @@ fi
 sed -i '' "s/^let appVersion = \".*\"/let appVersion = \"$V\"/" Sources/Shared/Version.swift
 ./build.sh test
 git commit -qam "Dynamo $V"
-git tag "v$V"
+git tag -m "Dynamo $V" "v$V"  # a message, so it also works with tag.gpgsign
 git push -q origin main "v$V"
 
 BODY="${NOTES:-See the commits since the previous release.}
