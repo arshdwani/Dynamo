@@ -80,7 +80,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// view's own bounds instead: there, preferredContentSize re-triggers AppKit's
     /// constraint pass until it gives up and crashes the app.
     private func hosting(popover: Bool) -> NSViewController {
-        let host = NSHostingController(rootView: PanelView().environmentObject(model))
+        // Fit on the screen below the menu bar, leaving room for the popover's arrow
+        // or the window's title bar.
+        let screen = (popover ? item.button?.window?.screen : nil) ?? NSScreen.main
+        let maxHeight = (screen?.visibleFrame.height ?? 800) - 40
+        let host = NSHostingController(rootView: PanelView(maxHeight: maxHeight).environmentObject(model))
         host.sizingOptions = popover ? .preferredContentSize : .standardBounds
         return host
     }

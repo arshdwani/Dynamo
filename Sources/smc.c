@@ -64,15 +64,30 @@ void smc_close(void) {
     conn = 0;
 }
 
+// A key's size and type never change, so each is looked up once. That halves the
+// kernel calls per read; the daemon reads a few keys every tick. Single-threaded use.
+#define INFO_CACHE_SIZE 16
+static struct { uint32_t key; SMCKeyInfo info; } info_cache[INFO_CACHE_SIZE];
+static int info_cached = 0;
+
 static int key_info(const char *key, SMCKeyInfo *info) {
+    uint32_t k = fourcc(key);
+    for (int i = 0; i < info_cached; i++) {
+        if (info_cache[i].key == k) { *info = info_cache[i].info; return 0; }
+    }
     SMCParam in, out;
     memset(&in, 0, sizeof in);
     memset(&out, 0, sizeof out);
-    in.key = fourcc(key);
+    in.key = k;
     in.data8 = SMC_CMD_READ_KEYINFO;
     int rc = call(&in, &out);
     if (rc) return rc;
     *info = out.keyInfo;
+    if (info_cached < INFO_CACHE_SIZE) {
+        info_cache[info_cached].key = k;
+        info_cache[info_cached].info = out.keyInfo;
+        info_cached++;
+    }
     return 0;
 }
 

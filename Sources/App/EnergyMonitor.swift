@@ -21,6 +21,8 @@ final class EnergyMonitor {
     private var last: [pid_t: Sample] = [:]
     private var lastTime: UInt64 = 0
     private var paths: [pid_t: String] = [:]
+    /// Display names by key: looking them up for every app took most of each sample.
+    private var names: [String: String] = [:]
     private var smoothed: [String: (watts: Double, cpu: Double)] = [:]
     private let timebase: Double = {
         var tb = mach_timebase_info()
@@ -62,14 +64,22 @@ final class EnergyMonitor {
             if v.0 > 0.005 || perApp[key] != nil { next[key] = v }
         }
         smoothed = next
+        names = names.filter { smoothed[$0.key] != nil }
 
         return smoothed.map { key, v in
-            let isApp = key.hasSuffix(".app")
-            let name = isApp ? FileManager.default.displayName(atPath: key).replacingOccurrences(of: ".app", with: "")
-                             : (key as NSString).lastPathComponent
-            return AppEnergy(id: key, name: name, bundlePath: isApp ? key : nil, watts: v.watts, cpuPercent: v.cpu)
+            AppEnergy(id: key, name: name(for: key), bundlePath: key.hasSuffix(".app") ? key : nil,
+                      watts: v.watts, cpuPercent: v.cpu)
         }
         .sorted { $0.watts > $1.watts }
+    }
+
+    private func name(for key: String) -> String {
+        if let n = names[key] { return n }
+        let n = key.hasSuffix(".app")
+            ? FileManager.default.displayName(atPath: key).replacingOccurrences(of: ".app", with: "")
+            : (key as NSString).lastPathComponent
+        names[key] = n
+        return n
     }
 
     private func appKey(for pid: pid_t) -> String {
