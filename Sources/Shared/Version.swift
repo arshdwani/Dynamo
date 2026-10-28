@@ -1,6 +1,6 @@
 /// The single source of truth for the version; build.sh copies it into Info.plist.
 /// Bump it with Tools/release.sh.
-let appVersion = "1.6"
+let appVersion = "1.7"
 
 /// Numeric, part-by-part comparison: 1.10 > 1.9, 1.2 == 1.2.0.
 func isNewerVersion(_ a: String, than b: String) -> Bool {
