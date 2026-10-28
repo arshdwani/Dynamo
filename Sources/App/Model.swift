@@ -73,11 +73,11 @@ final class Model: ObservableObject {
 
     /// Live numbers every 3 s while the panel is open. While it's closed only the menu
     /// bar icon needs them and battery changes arrive as notifications, so a slow poll
-    /// for the daemon's status is enough; it stays well inside DaemonStatus.isFresh's
-    /// 60 s even with the daemon's 20 s heartbeat. The tolerance lets macOS batch wakeups.
+    /// for the daemon's status (task finished, adapter paused) is enough. The tolerance
+    /// lets macOS batch wakeups.
     private func startTimer() {
         timer?.invalidate()
-        let interval: TimeInterval = panelVisible ? 3 : 20
+        let interval: TimeInterval = panelVisible ? 3 : 60
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -98,7 +98,8 @@ final class Model: ObservableObject {
 
     func refresh() {
         guard !frozen else { return }
-        battery = BatteryInfo.read()
+        // The closed panel's menu bar icon needs only the essentials (opening it refreshes).
+        battery = BatteryInfo.read(essentialsOnly: !panelVisible)
         status = DaemonStatus.load()
         if panelVisible { energyApps = energy.sample() }
         installed = Config.exists

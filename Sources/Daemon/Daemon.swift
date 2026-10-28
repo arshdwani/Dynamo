@@ -1,4 +1,5 @@
 import Foundation
+import IOKit.ps
 import IOKit.pwr_mgt
 
 func log(_ msg: String) {
@@ -40,6 +41,11 @@ final class Daemon {
     private var asleepSince: Date?
     private var timer: Timer?
     private var signalSources: [DispatchSourceSignal] = []
+    /// Modification time and size of the config last parsed, to skip unchanged reads.
+    private var configStamp: (mtime: timespec, size: off_t)?
+    private var configWatch: DispatchSourceFileSystemObject?
+    private var pendingConfigCheck: DispatchWorkItem?
+    private var pluggedIn: Bool?
 
     init() {
         state.wasInhibited = ChargeControl.chargingInhibited ?? false
@@ -62,21 +68,80 @@ final class Daemon {
         }
 
         registerForSleep()
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.tick() }
-        timer?.tolerance = 1  // lets macOS coalesce the wakeup with others
+        watchPower()
+        schedule(pluggedIn: true)
         tick()
         RunLoop.main.run()
         exit(0)
     }
 
+    /// Every 5 s on power, where charging must stop right at the limit. On battery
+    /// nothing charges, so every 30 s is plenty; plugging in or unplugging and setting
+    /// changes trigger a check at once (watchPower, watchConfig).
+    private func schedule(pluggedIn: Bool) {
+        let interval: TimeInterval = pluggedIn ? 5 : 30
+        guard timer?.timeInterval != interval else { return }
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
+        timer?.tolerance = interval / 5  // lets macOS coalesce the wakeup with others
+    }
+
+    /// Checks right away when the adapter is connected or disconnected. macOS posts
+    /// power source changes about once a minute on battery as well, so only a change
+    /// in ExternalConnected leads to a full check.
+    private func watchPower() {
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        guard let src = IOPSNotificationCreateRunLoopSource({ ctx in
+            guard let ctx else { return }
+            let daemon = Unmanaged<Daemon>.fromOpaque(ctx).takeUnretainedValue()
+            let now = BatteryInfo.read(essentialsOnly: true)?.pluggedIn
+            if now != nil && now != daemon.pluggedIn { daemon.tick() }
+        }, ctx)?.takeRetainedValue() else {
+            log("warning: no power source notifications; plugging in is noticed at the next check")
+            return
+        }
+        CFRunLoopAddSource(CFRunLoopGetMain(), src, .defaultMode)
+    }
+
+    /// Applies a change from the app or CLI right away, not at the next check (up to
+    /// 30 s on battery). Config is saved in place, so the file itself can be watched;
+    /// if it's ever replaced, the next check watches the new one.
+    private func watchConfig() {
+        let fd = open(Paths.config, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let src = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .delete, .rename],
+                                                            queue: .main)
+        src.setEventHandler { [weak self, weak src] in
+            guard let self, let src else { return }
+            if !src.data.isDisjoint(with: [.delete, .rename]) {
+                src.cancel()
+                self.configWatch = nil
+            }
+            // A save is a truncate then a write: let it finish, and check once.
+            self.pendingConfigCheck?.cancel()
+            let check = DispatchWorkItem { [weak self] in self?.tick() }
+            self.pendingConfigCheck = check
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: check)
+        }
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        configWatch = src
+    }
+
     /// The config, tolerating a half-written file: if the file exists but doesn't
-    /// parse, the app is mid-save, so keep using the last good copy.
+    /// parse, the app is mid-save, so keep using the last good copy. Parsed again
+    /// only when the file has changed.
     private func loadConfig() -> Config? {
-        if let c = Config.load() {
-            lastGoodConfig = c
+        var st = stat()
+        guard stat(Paths.config, &st) == 0 else { return nil }
+        if let c = lastGoodConfig, let s = configStamp, s.size == st.st_size,
+           s.mtime.tv_sec == st.st_mtimespec.tv_sec, s.mtime.tv_nsec == st.st_mtimespec.tv_nsec {
             return c
         }
-        return Config.exists ? lastGoodConfig : nil
+        guard let c = Config.load() else { return lastGoodConfig }
+        lastGoodConfig = c
+        configStamp = (st.st_mtimespec, st.st_size)
+        return c
     }
 
     func tick() {
@@ -86,11 +151,14 @@ final class Daemon {
             guard Date().timeIntervalSince(since) > 60 else { return }
             asleepSince = nil
         }
-        guard let bat = BatteryInfo.read() else {
+        if configWatch == nil { watchConfig() }
+        guard let bat = BatteryInfo.read(essentialsOnly: true) else {
             writeStatus(mode: nil, reason: "Battery unreadable", error: "Could not read AppleSmartBattery",
                         inhibited: ChargeControl.chargingInhibited, adapterDisabled: ChargeControl.adapterDisabled)
             return
         }
+        pluggedIn = bat.pluggedIn
+        schedule(pluggedIn: bat.pluggedIn)
         if History.record(bat, into: &history) { History.save(history) }
 
         guard var cfg = loadConfig()?.sanitized else {
@@ -206,6 +274,10 @@ final class Daemon {
                 || $0.calibration != s.calibration || $0.eventAt != s.eventAt
         } ?? true
         guard changed || Date().timeIntervalSince(lastStatusWrite) > 20 else { return }
+        lastStatusWrite = Date()
+        // Nothing new: touching the file is enough to show we're alive (readers count
+        // its date, see DaemonStatus.load), and costs a fraction of rewriting it.
+        if !changed && utimes(Paths.status, nil) == 0 { return }
 
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
@@ -215,7 +287,6 @@ final class Daemon {
             chmod(Paths.status, 0o644)
         }
         lastStatus = s
-        lastStatusWrite = Date()
     }
 
     // MARK: Sleep / wake

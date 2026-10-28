@@ -113,11 +113,19 @@ struct DaemonStatus: Codable {
     var event: String?
     var eventAt: Date?
 
+    /// When nothing has changed the daemon only touches the file (far cheaper than
+    /// rewriting it), so the file's modification date counts as `updatedAt` too.
     static func load() -> DaemonStatus? {
         guard let data = FileManager.default.contents(atPath: Paths.status) else { return nil }
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
-        return try? dec.decode(DaemonStatus.self, from: data)
+        guard var s = try? dec.decode(DaemonStatus.self, from: data) else { return nil }
+        var st = stat()
+        if stat(Paths.status, &st) == 0 {
+            let touched = Date(timeIntervalSince1970: TimeInterval(st.st_mtimespec.tv_sec))
+            s.updatedAt = max(s.updatedAt, touched)
+        }
+        return s
     }
 
     var isFresh: Bool { Date().timeIntervalSince(updatedAt) < 60 }

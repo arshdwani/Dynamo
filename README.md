@@ -136,7 +136,8 @@ dynamo off                 # let macOS manage charging again
 
 Dynamo has two parts:
 
-- **`dynamo daemon`**, a small root service run by launchd. Every 5 seconds it reads the
+- **`dynamo daemon`**, a small root service run by launchd. Every 5 seconds on power
+  (30 on battery, and at once when you plug in or change a setting) it reads the
   battery and sets the Mac's SMC charging controls: `CHTE` (charging on/off), `CHIE`
   (adapter on/off, for discharging) and `ACLC` (MagSafe LED). On older firmware it falls
   back to `CH0B`/`CH0C` and `CH0I`. When the service stops, it always turns charging back on.

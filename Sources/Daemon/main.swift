@@ -138,7 +138,7 @@ case "lowpower":
         print(mode.apply() ? "Low Power Mode: \(mode.title)" : "pmset failed")
     } else {
         updateConfig { $0.lowPowerRequest = mode }
-        print("Requested Low Power Mode: \(mode.title) (applied within 5 s)")
+        print("Requested Low Power Mode: \(mode.title) (applied in a moment)")
     }
 case "restore":
     guard geteuid() == 0 else { fail("restore needs root: sudo dynamo restore") }
