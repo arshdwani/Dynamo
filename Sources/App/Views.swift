@@ -918,31 +918,27 @@ struct FlowNode: View {
     }
 }
 
-/// A dashed line whose dashes travel in the direction power flows.
+/// A dashed line with a chevron pointing the way power flows. Deliberately static:
+/// animating it made the popover re-measure the whole panel every frame (~20% CPU).
 struct FlowArrow: View {
     var active: Bool
     var forward: Bool
     var color: Color
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !active)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            let phase = CGFloat(t.truncatingRemainder(dividingBy: 0.8) / 0.8) * 8
-            ZStack {
-                Path { p in
-                    p.move(to: CGPoint(x: 2, y: 6))
-                    p.addLine(to: CGPoint(x: 30, y: 6))
-                }
-                .stroke(active ? color : Color.secondary.opacity(0.3),
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 5],
-                                           dashPhase: active ? (forward ? -phase : phase) : 0))
-                Image(systemName: forward ? "chevron.right" : "chevron.left")
-                    .font(.system(size: 9, weight: .heavy))
-                    .foregroundStyle(active ? color : Color.secondary.opacity(0.3))
-                    .offset(x: forward ? 13 : -13)
+        ZStack {
+            Path { p in
+                p.move(to: CGPoint(x: 2, y: 6))
+                p.addLine(to: CGPoint(x: 30, y: 6))
             }
-            .frame(width: 32, height: 12)
+            .stroke(active ? color : Color.secondary.opacity(0.3),
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 5]))
+            Image(systemName: forward ? "chevron.right" : "chevron.left")
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(active ? color : Color.secondary.opacity(0.3))
+                .offset(x: forward ? 13 : -13)
         }
+        .frame(width: 32, height: 12)
         .padding(.bottom, 30)
     }
 }

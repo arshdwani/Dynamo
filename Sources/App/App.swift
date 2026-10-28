@@ -21,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var item: NSStatusItem!
     private let popover = NSPopover()
     private var window: NSWindow?
+    /// Top-left corner of the last closed window, so reopening puts it back there.
+    private var windowTopLeft: NSPoint?
     private var cancellables: Set<AnyCancellable> = []
     private var lastIconKey = ""
 
@@ -31,7 +33,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         item.button?.action = #selector(togglePopover)
         item.button?.imagePosition = .imageTrailing  // "80% ▭" like the system battery item
 
-        popover.contentViewController = hosting()
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
@@ -75,9 +76,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
     }
 
-    private func hosting() -> NSViewController {
+    /// A popover sizes itself from preferredContentSize. A window must size from the
+    /// view's own bounds instead: there, preferredContentSize re-triggers AppKit's
+    /// constraint pass until it gives up and crashes the app.
+    private func hosting(popover: Bool) -> NSViewController {
         let host = NSHostingController(rootView: PanelView().environmentObject(model))
-        host.sizingOptions = .preferredContentSize
+        host.sizingOptions = popover ? .preferredContentSize : .standardBounds
         return host
     }
 
@@ -117,6 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             popover.performClose(nil)
         } else {
             model.panelVisible = true
+            // The panel's views are built on open and dropped on close (see popoverDidClose),
+            // because hidden SwiftUI views keep updating, and animating, in the background.
+            popover.contentViewController = hosting(popover: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
             NSApp.activate(ignoringOtherApps: true)
@@ -125,12 +132,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func showWindow() {
         if window == nil {
-            let w = NSWindow(contentViewController: hosting())
+            let w = NSWindow(contentViewController: hosting(popover: false))
             w.title = "Dynamo"
             w.styleMask = [.titled, .closable, .miniaturizable]
             w.isReleasedWhenClosed = false
             w.delegate = self
-            w.center()
+            if let p = windowTopLeft { w.setFrameTopLeftPoint(p) } else { w.center() }
             window = w
         }
         model.panelVisible = true
@@ -138,9 +145,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func popoverDidClose(_ notification: Notification) { updatePanelVisible() }
+    func popoverDidClose(_ notification: Notification) {
+        if !popover.isShown { popover.contentViewController = nil }
+        updatePanelVisible()
+    }
+
+    /// The window is released on close, like the popover's content, and rebuilt on open.
     func windowWillClose(_ notification: Notification) {
-        DispatchQueue.main.async { self.updatePanelVisible() }
+        if let f = window?.frame { windowTopLeft = NSPoint(x: f.minX, y: f.maxY) }
+        DispatchQueue.main.async {
+            if self.window?.isVisible == false {
+                self.window?.delegate = nil
+                self.window = nil
+            }
+            self.updatePanelVisible()
+        }
     }
 
     private func updatePanelVisible() {
