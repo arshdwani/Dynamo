@@ -1,4 +1,5 @@
 import AppKit
+import IOKit.ps
 import ServiceManagement
 import SwiftUI
 import UserNotifications
@@ -30,8 +31,13 @@ final class Model: ObservableObject {
     /// Result of the last manual "Check for Updates".
     @Published var updateCheck = UpdateCheck.idle
     /// Energy sampling walks every process, so it only runs while someone is looking.
+    /// Refreshes also slow down while the panel is closed (see startTimer).
     var panelVisible = false {
-        didSet { if panelVisible && !oldValue { refresh() } }
+        didSet {
+            guard panelVisible != oldValue else { return }
+            startTimer()
+            if panelVisible { refresh() }
+        }
     }
     /// Hides identifying details (battery serial) for screenshots.
     var redacted = false
@@ -53,9 +59,8 @@ final class Model: ObservableObject {
         restoreKnownUpdate()
         refresh()
         _ = energy.sample()  // baseline, so the first look at the panel has real numbers
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
+        startTimer()
+        watchPowerSources()
         observers.append(NotificationCenter.default.addObserver(
             forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
@@ -64,6 +69,31 @@ final class Model: ObservableObject {
                 self?.lastLowPowerRead = .distantPast
             }
         })
+    }
+
+    /// Live numbers every 3 s while the panel is open. While it's closed only the menu
+    /// bar icon needs them and battery changes arrive as notifications, so a slow poll
+    /// for the daemon's status is enough; it stays well inside DaemonStatus.isFresh's
+    /// 60 s even with the daemon's 20 s heartbeat. The tolerance lets macOS batch wakeups.
+    private func startTimer() {
+        timer?.invalidate()
+        let interval: TimeInterval = panelVisible ? 3 : 20
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+        timer?.tolerance = interval / 5
+    }
+
+    /// Refreshes as soon as macOS reports a battery change (plugged in, charge level, ...),
+    /// so the menu bar icon keeps up without polling.
+    private func watchPowerSources() {
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        guard let src = IOPSNotificationCreateRunLoopSource({ ctx in
+            guard let ctx else { return }
+            let model = Unmanaged<Model>.fromOpaque(ctx).takeUnretainedValue()
+            Task { @MainActor in model.refresh() }
+        }, ctx)?.takeRetainedValue() else { return }
+        CFRunLoopAddSource(CFRunLoopGetMain(), src, .defaultMode)
     }
 
     func refresh() {
@@ -76,8 +106,12 @@ final class Model: ObservableObject {
         if let c = Config.load(), c != config { config = c }
 
         if let s = status { notifyIfNeeded(s) }
+        checkForUpdates()
 
+        // The rest only shows in the panel: load it at launch, then only while the panel
+        // is open (opening it refreshes, which catches up anything that went stale).
         let now = Date()
+        guard panelVisible || lastHistoryLoad == .distantPast else { return }
         // pmset is a process launch, so read it rarely: every 30 s, or right after a change.
         if now.timeIntervalSince(lastLowPowerRead) > 30 && now.timeIntervalSince(lowPowerRequestedAt) > 6 {
             lastLowPowerRead = now
@@ -93,7 +127,6 @@ final class Model: ObservableObject {
                 await MainActor.run { self.appleHealth = h }
             }
         }
-        checkForUpdates()
         if now.timeIntervalSince(lastHistoryLoad) > 60 {
             history = History.load()
             lastHistoryLoad = now

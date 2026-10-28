@@ -63,6 +63,7 @@ final class Daemon {
 
         registerForSleep()
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.tick() }
+        timer?.tolerance = 1  // lets macOS coalesce the wakeup with others
         tick()
         RunLoop.main.run()
         exit(0)
